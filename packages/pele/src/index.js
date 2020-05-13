@@ -1,8 +1,8 @@
 const fs = require('fs')
 const path = require('path')
-const mergeDeep = require('merge-deep')
+const Module = require('module')
 const { lockdown } = require('ses')
-const Module = module.constructor
+const mergeDeep = require('merge-deep')
 
 module.exports.lockdown = () => {
   // apply SES protections
@@ -43,6 +43,17 @@ module.exports.lockdown = () => {
     'lavamoat.wrapModule(function (exports, require, module, __filename, __dirname) { ',
     '\n});'
   ]
+
+  // lockdown internals (woof, what a disaster)
+  // const EventEmitter = require('events')
+  // delete EventEmitter.prototype._events
+  // delete EventEmitter.prototype._eventsCount
+  // delete EventEmitter.prototype._maxListeners
+  // harden(EventEmitter)
+  // Module.builtinModules.forEach(moduleName => {
+  //   harden(require(moduleName))
+  // })
+
 }
 
 function loadConfig ({ debugMode }) {

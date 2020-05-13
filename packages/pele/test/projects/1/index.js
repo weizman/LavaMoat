@@ -14,6 +14,14 @@ const createKeccakHash = require('keccak')
 const result = getHash('abcdef1234567890')
 console.log(`keccak256: ${result}`)
 
+const fs = require('fs')
+fs.readFile = fakeReadFile
+if (fs.readFile === fakeReadFile) {
+  throw new Error('was able to overwrite fs')
+}
+
+function fakeReadFile () {}
+
 function getHash (inputHexString) {
   return createKeccakHash('keccak256')
     .update(Buffer.from(inputHexString, 'hex'))
