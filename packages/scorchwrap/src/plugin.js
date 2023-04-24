@@ -3,6 +3,7 @@
 /** @typedef {import("webpack").Compiler} Compiler */
 /** @typedef {import("webpack").Compilation} Compilation */
 /** @typedef {import("webpack").Generator} Generator */
+/** @typedef {import("webpack").sources.Source} Source */
 
 /** @typedef {object} ScorchWrapPluginOptions
  * @property {boolean} [runChecks] - check resulting code with wrapping for correctnesss
@@ -13,7 +14,7 @@ const { NormalModule, WebpackError } = require("webpack");
 const { wrapper } = require("./wrapper");
 const diag = require("./diagnostics");
 
-const { ConcatSource } = require("webpack-sources");
+const ConcatSource = require("webpack-sources").ConcatSource;
 // @ts-ignore // this one doesn't have official types
 const RUNTIME_GLOBALS = require("webpack/lib/RuntimeGlobals");
 
@@ -104,28 +105,35 @@ const wrapGeneratorMaker = ({ runChecks }) => {
      *
      * @param {NormalModule} module
      * @param {*} options - GeneratorOptions type not exported fromw ebpack
-     * @returns
+     * @returns {Source}
      */
     generatorInstance.generate = function (module, options) {
       diag.rawDebug(4, {
         module,
         options,
       });
+      // using this in webpack.config.ts complained about some mismatch
+      // @ts-ignore
       const originalGeneratedSource = originalGenerate.apply(this, arguments);
       // originalGenerate adds requirements to options.runtimeRequirements
 
       // Turn off "use strict" being added in front of modules on final wrapping by webpack.
       // If anything attempts to reverse it, we want to ignore it
-      Object.defineProperty(module.buildInfo, "strict", {
-        get: () => false,
-        set: () => {
-          console.warn(
-            "Attempted to set strict mode on module",
-            module.rawRequest,
-            Error().stack
-          );
-        },
-      });
+      if (
+        module.buildInfo.strict === true ||
+        module.buildInfo.strict === undefined // seems like it's possible for generation to run more than once for the same module
+      ) {
+        Object.defineProperty(module.buildInfo, "strict", {
+          get: () => false,
+          set: () => {
+            console.warn(
+              "Attempted to set strict mode on module",
+              module.rawRequest,
+              Error().stack
+            );
+          },
+        });
+      }
 
       const packageId = fakeAA(module.rawRequest);
 
@@ -134,7 +142,7 @@ const wrapGeneratorMaker = ({ runChecks }) => {
         // of strings. Turning it into a string here might mean we're loosing some caching.
         // Wrapper checks if transforms changed the source and indicates it, so that we can
         // decide if we want to keep the original object representing it.
-        source: originalGeneratedSource.source(),
+        source: originalGeneratedSource.source().toString(),
         id: packageId,
         runtimeKit: processRequirements(options.runtimeRequirements, module),
         runChecks,
@@ -146,10 +154,18 @@ const wrapGeneratorMaker = ({ runChecks }) => {
         sourceChanged,
       });
 
+      // using this in webpack.config.ts complained about made up issues
       if (sourceChanged) {
-        return new ConcatSource(before, source, after);
+        // @ts-ignore
+        return /** @type {Source} */ new ConcatSource(before, source, after);
       } else {
-        return new ConcatSource(before, originalGeneratedSource, after);
+        // @ts-ignore
+        return /** @type {Source} */ new ConcatSource(
+          before,
+          // @ts-ignore
+          originalGeneratedSource,
+          after
+        );
       }
     };
     return generatorInstance;
@@ -175,12 +191,15 @@ class ScorchWrapPlugin {
     // Concatenation won't work with wrapped modules. Have to disable it.
     compiler.options.optimization.concatenateModules = false;
     // TODO: Research. If we fiddle a little with how we wrap the module, it might be possible to get inlining to work eventually.
-    
-    
+
     compiler.hooks.compilation.tap(
       PLUGIN_NAME,
       (compilation, { normalModuleFactory }) => {
-        compilation.warnings.push(new WebpackError('ScorchWrapPlugin: Concatenation of modules disabled - not compatible with LavaMoat wrapped modules.'));
+        compilation.warnings.push(
+          new WebpackError(
+            "ScorchWrapPlugin: Concatenation of modules disabled - not compatible with LavaMoat wrapped modules."
+          )
+        );
         const runChecks = this.options.runChecks || diag.level > 0;
         normalModuleFactory.hooks.generator
           .for(JAVASCRIPT_MODULE_TYPE_AUTO)
